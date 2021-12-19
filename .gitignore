@@ -1,0 +1,8 @@
+# 忽略教材
+materials
+
+# 忽略參考paper
+kaggle/reference
+
+__pycache__
+
