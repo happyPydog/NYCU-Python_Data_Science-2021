@@ -1,44 +1,7 @@
-import sys
-from collections import Counter
-import numpy as np
 import pandas as pd
-from rich import print
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import LabelEncoder
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import KMeansSMOTE
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from dataset import CreditCardDataset
 
 
-DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 DATA_DIR = "dataset/UCI_Credit_Card.csv"
-RANDOM_SEED = 98765
-TEST_SIZE = 0.3
-BATCH_SIZE = 300
-LEARNING_RATE = 0.001
-WEIGHT_DECAY = 0
-EPOCHS = 1000
-
-
-class LinerNet(nn.Module):
-    """Linear neural network."""
-
-    def __init__(self, in_features: int):
-        super(LinerNet, self).__init__()
-        self.network = nn.Sequential(
-            nn.Linear(in_features, 55),
-            nn.ReLU(),
-            nn.Linear(55, 2),
-        )
-
-    def forward(self, x: torch.Tensor):
-        return self.network(x)
 
 
 def main():
@@ -46,7 +9,6 @@ def main():
     # load data and drop some unuseless features
     df = pd.read_csv(DATA_DIR).drop(
         columns=[
-            "ID",
             "PAY_4",
             "PAY_5",
             "PAY_5",
@@ -82,9 +44,11 @@ def main():
     # reorder df
     df = pd.concat(
         [
+            df["ID"],
             df["AGE"],
             df["SEX"],
             df["EDU"],
+            df["MAR"],
             df["CRE"],
             df["BILL_1"],
             df["BILL_2"],
@@ -104,4 +68,39 @@ def main():
     for sta in ["STA_1", "STA_2", "STA_3"]:
         df[sta] = df[sta].apply(lambda x: "duly" if x <= 0 else "delay")
 
+    # SEX to 1, 2 to "Male" and "Female"
+    df["SEX"] = df["SEX"].apply(lambda x: "Male" if x == 1 else "Famale")
+
+    # EDU 1, 2, 3 to "HighSchool", "College", "Graduate"
+
+    def transform_edu(x):
+        if x == 1:
+            return "Graduate"
+        elif x == 2:
+            return "College"
+        elif x == 3:
+            return "HighSchool"
+        else:
+            return "Others"
+
+    df["EDU"] = df["EDU"].apply(transform_edu)
+
+    def transform_mar(x):
+        if x == 1:
+            return "married"
+        elif x == 2:
+            return "single"
+        elif x == 3:
+            return "others"
+
+    df["MAR"] = df["MAR"].apply(transform_mar)
+
+    # PAY to "Y" and "N"
+    df["PAY"] = df["PAY"].apply(lambda x: "N" if x == 1 else "Y")
+
+    # save csv
     df.to_csv("uci_credit_card_default.csv", index=False)
+
+
+if __name__ == "__main__":
+    main()

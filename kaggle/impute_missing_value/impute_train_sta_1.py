@@ -5,9 +5,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from sklearn.model_selection import train_test_split
 
 from model import LinerNet
-from preprocessing import min_max_scaler, standard_scaler
+from preprocessing import min_max_scaler
 from dataset import CreditCardDataset
 from utils import RunTime
 
@@ -17,6 +18,7 @@ DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 # config of training model
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
+WEIGHT_DECAY = 0
 EPOCHS = 2000
 
 
@@ -24,20 +26,59 @@ EPOCHS = 2000
 def main():
 
     # load csv
-    train_csv = pd.read_csv("dataset/train.csv")
-    test_csv = pd.read_csv("dataset/test.csv")
-
-    # concat train.csv and test.csv as a new df
-    df = pd.concat([train_csv, test_csv])
+    df = pd.read_csv("dataset/UCI_Credit_Card.csv")
 
     # drop unuseless feautes in training
-    df = df.drop(columns=["AGE", "SEX", "EDU", "MAR", "PAY"])
+    df = df.drop(columns=["default.payment.next.month"])
 
     # split data to train and test
-    train = df.drop(columns=["ID", "STA_2", "STA_3"]).dropna()
-    test = df.drop(columns=["ID", "STA_2", "STA_3"])[
-        df.drop(columns=["STA_2", "STA_3"]).STA_1.isnull()
-    ]
+    df = df.drop(
+        columns=[
+            "ID",
+            "BILL_AMT4",
+            "BILL_AMT5",
+            "BILL_AMT6",
+            "PAY_AMT4",
+            "PAY_AMT5",
+            "PAY_AMT6",
+            "PAY_4",
+            "PAY_5",
+            "PAY_6",
+        ]
+    )
+
+    # rename
+    df = df.rename(columns={"PAY_0": "PAY_1"})
+
+    # reorder df
+    df = pd.concat(
+        [
+            df["AGE"],
+            df["SEX"],
+            df["EDUCATION"],
+            df["MARRIAGE"],
+            df["BILL_AMT1"],
+            df["BILL_AMT2"],
+            df["BILL_AMT3"],
+            df["PAY_1"],
+            df["PAY_2"],
+            df["PAY_3"],
+            df["PAY_AMT1"],
+            df["PAY_AMT2"],
+            df["PAY_AMT3"],
+        ],
+        axis=1,
+    )
+
+    # Assign data and label
+    X, y = df.drop(columns="PAY_1"), df["PAY_1"]
+
+    print(X)
+    print(y)
+
+    import sys
+
+    sys.exit()
 
     # test drop STA_1
     test = test.drop(columns="STA_1")
@@ -47,6 +88,8 @@ def main():
     le = LabelEncoder()
     le.fit(train["STA_1"])
     train["STA_1"] = le.transform(train["STA_1"])
+
+    # onehat encoder
 
     # scaling
     train = min_max_scaler(train)
@@ -58,17 +101,25 @@ def main():
     print(f"{X.shape}, {y.shape}")
     print(test.values.shape)
 
+    # train test split
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
+    print(f"Original: {X_train.shape}, {y_train.shape}, {X_val.shape}, {y_val.shape}")
+
     # Dataset
-    training_dataset = CreditCardDataset(X, y)
+    training_dataset = CreditCardDataset(X_train, y_train)
+    val_dataset = CreditCardDataset(X_val, y_val)
 
     # DataLoader
     training_loader = DataLoader(training_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     # model
     model = LinerNet(n_features).to(DEVICE)
 
     # optimizer and loss function
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=0)
+    optimizer = optim.Adam(
+        model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+    )
     criterion = nn.CrossEntropyLoss()
 
     #################
@@ -76,9 +127,13 @@ def main():
     #################
 
     for epoch in range(EPOCHS):
-        accuracy = 0
-        count = 0
-        training_loss = 0.0
+        train_accuracy = 0
+        train_count = 0
+        train_loss = 0.0
+        test_accuracy = 0
+        test_count = 0
+        test_loss = 0.0
+
         for _, (x, labels) in enumerate(training_loader):
             x = x.to(DEVICE)
             labels = labels.to(DEVICE)
@@ -89,13 +144,24 @@ def main():
             optimizer.step()
 
             y_pred = torch.argmax(outputs.data, dim=1)
-            count += len(x)
-            accuracy += (y_pred == labels).sum().item()
-            training_loss += loss.item() * len(labels)
+            train_count += len(x)
+            train_accuracy += (y_pred == labels).sum().item()
+            train_loss += loss.item() * len(labels)
+
+        with torch.no_grad():
+            for _, (x, labels) in enumerate(val_loader):
+                x = x.to(DEVICE)
+                labels = labels.to(DEVICE)
+                outputs = model(x.float())
+                loss = criterion(outputs, labels.long())
+                y_pred = torch.argmax(outputs.data, dim=1)
+                test_count += len(x)
+                test_accuracy += (y_pred == labels).sum().item()
+                test_loss += loss.item() * len(labels)
 
         if (epoch + 1) % 10 == 0:
             print(
-                f"【EPOCHS {epoch+1}】: Train Loss: {(training_loss / count):.3f}, Train ACC: {(accuracy / count):.3f}"
+                f"【EPOCHS {epoch+1}】: Train Loss: {(train_loss / train_count):.3f}, Train ACC: {(train_accuracy / train_count):.3f}, Test Loss: {(test_loss / test_count):.3f}, Test ACC: {(test_accuracy / test_count):.3f}"
             )
 
     # save model

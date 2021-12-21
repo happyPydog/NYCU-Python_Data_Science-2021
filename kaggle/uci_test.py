@@ -1,3 +1,4 @@
+import sys
 from collections import Counter
 import numpy as np
 import pandas as pd
@@ -9,21 +10,22 @@ from sklearn.metrics import roc_auc_score
 from metric import show_result
 
 
-DATA_DIR = "./uci_credit_card_default.csv"
+TRAIN_DIR = "dataset/train.csv"
+TEST_DIR = "dataset/test.csv"
+UCI_DIR = "uci_credit_card_default.csv"
 
 
 def main():
 
-    df = pd.read_csv(DATA_DIR).drop(columns=["SEX", "EDU"])
+    df_uci = pd.read_csv(UCI_DIR).drop(columns="ID")
+    df_test = pd.read_csv(TEST_DIR).drop(columns="ID")
 
-    # check column type
-    col_numerical = {
-        "AGE": int,
-        "STA_1": object,
-        "STA_2": object,
-        "STA_3": object,
-    }
-    df = df.astype(col_numerical)
+    # # label encoder
+    # train_label = df_uci["PAY"].values
+    # test_label = df_uci["PAY"].values
+    # le = LabelEncoder()
+    # le.fit(label)
+    # label = le.transform(label)
 
     # label encoder
     label_col = ["STA_1", "STA_2", "STA_3"]

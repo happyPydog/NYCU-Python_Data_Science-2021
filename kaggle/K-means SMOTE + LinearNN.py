@@ -35,14 +35,6 @@ class LinerNet(nn.Module):
             nn.Linear(in_features, 55),
             nn.ReLU(),
             nn.Linear(55, 2),
-            # nn.ReLU(),
-            # nn.Linear(512, 256),
-            # nn.ReLU(),
-            # nn.Linear(256, 128),
-            # nn.ReLU(),
-            # nn.Linear(128, 64),
-            # nn.ReLU(),
-            # nn.Linear(64, 32),
         )
 
     def forward(self, x: torch.Tensor):
@@ -105,6 +97,8 @@ def main():
     scaler.fit(X_train)
     X_train = scaler.transform(X_train)
     X_val = scaler.transform(X_val)
+
+    # PCA
 
     # K-means SMOTE
     k = int(np.sqrt(sample_size / 2))

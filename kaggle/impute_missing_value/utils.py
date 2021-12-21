@@ -20,7 +20,11 @@ def show_result(clf, y_true, y_pred, le, save=False, figsize=(8, 6)):
     y_true = le.inverse_transform(y_true)
     cm = confusion_matrix(y_true, y_pred, labels=le.classes_)
     print(f"confusion matrix: \n {cm}")
-    print(classification_report(y_true, y_pred, zero_division=0))
+    print(
+        classification_report(
+            y_true, y_pred, target_names=TARTGET_NAME, zero_division=0
+        )
+    )
 
     fig, ax = plt.subplots(figsize=figsize)
     ConfusionMatrixDisplay.from_predictions(

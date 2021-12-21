@@ -1,10 +1,10 @@
 from collections import Counter
 import numpy as np
 import pandas as pd
+import xgboost as xbg
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
 from imblearn.over_sampling import KMeansSMOTE
-from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_auc_score
 from metric import show_result
 
@@ -34,10 +34,22 @@ def main():
     le.fit(df["PAY"].values)
     df["PAY"] = le.transform(df["PAY"].values)
 
-    # train test split
+    # k-means SMOTE
     X, y = df.drop(columns="PAY").values, df["PAY"].values
+    sample_size, _ = X.shape
+    k = int(np.sqrt(sample_size / 2))
+    sm = KMeansSMOTE(
+        k_neighbors=k,
+        sampling_strategy="minority",
+        cluster_balance_threshold=0.24,
+        n_jobs=-1,
+        kmeans_estimator=2,
+    )
+    X_train, y_train = sm.fit_resample(X, y)
+    print(sorted(Counter(y_train).items()))
+
+    # train test split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y)
-    sample_size, _ = X_train.shape
     print(
         f"{X_train.shape = }, {y_train.shape = }, {X_test.shape = }, {y_test.shape = }"
     )
@@ -48,26 +60,23 @@ def main():
     X_train = scaler.transform(X_train)
     X_test = scaler.transform(X_test)
 
-    # k-means SMOTE
-    k = int(np.sqrt(sample_size / 2))
-    sm = KMeansSMOTE(k_neighbors=k)
-    X_train, y_train = sm.fit_resample(X_train, y_train)
-    print(sorted(Counter(y_train).items()))
-
     # model
-    clf = MLPClassifier(
-        hidden_layer_sizes=55,
-        activation="relu",
-        solver="sgd",
-        alpha=0.0001,
-        batch_size=1000,
-        learning_rate="adaptive",
-        learning_rate_init=0.001,
-        max_iter=100,
-        early_stopping=True,
-        verbose=False,
+    clf = xbg.XGBClassifier(
+        objective="binary:logistic",
+        n_estimators=10,
+        use_label_encoder=False,
+        learning_rate=0.2,
+        max_depth=200,
     )
-    clf.fit(X_train, y_train)
+
+    clf.fit(
+        X_train,
+        y_train,
+        verbose=False,
+        eval_metric="logloss",
+        eval_set=[(X_test, y_test)],
+    )
+
     y_pred = clf.predict(X_test)
     print(f"Training Score: {clf.score(X_train, y_train):.2f}")
     print(f"Testing Score: {clf.score(X_test, y_test):.2f}")

@@ -1,77 +1,99 @@
-from collections import Counter
 import numpy as np
 import pandas as pd
-import xgboost as xbg
+import xgboost as xgb
+from rich import print
 from sklearn.preprocessing import LabelEncoder, MinMaxScaler
 from sklearn.model_selection import train_test_split
-from imblearn.over_sampling import KMeansSMOTE
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score
-from metric import show_result
+from imblearn.over_sampling import KMeansSMOTE
+from utils import show_result
 
 
-DATA_DIR = "./uci_credit_card_default.csv"
+TRAIN_DIR = "uci_credit_card_default.csv"
+TEST_DIR = "dataset/test.csv"
+TEST_SIZE = 0.3
+KMEANS_USE = False
+TRAIN_TEST_SPLIT = False
+
+
+def sta_encoder(x):
+    if x == "duly":
+        return 1
+    elif x == "delay":
+        return 0
+    else:
+        np.nan
 
 
 def main():
 
-    df = pd.read_csv(DATA_DIR).drop(columns=["SEX", "EDU"])
+    # load dataset
+    train = pd.read_csv(TRAIN_DIR).drop(columns=["ID"])
+    test = pd.read_csv(TEST_DIR).drop(columns=["ID"])
 
-    # check column type
-    col_numerical = {
-        "AGE": int,
-        "STA_1": object,
-        "STA_2": object,
-        "STA_3": object,
-    }
-    df = df.astype(col_numerical)
+    # impute missing value
 
     # label encoder
-    label_col = ["STA_1", "STA_2", "STA_3"]
-    df[label_col] = df[label_col].apply(LabelEncoder().fit_transform)
+    label_cols = ["SEX", "EDU", "MAR"]
+    train[label_cols] = train[label_cols].apply(LabelEncoder().fit_transform)
+    test[label_cols] = test[label_cols].apply(LabelEncoder().fit_transform)
+
+    # label encoder for the target value
+    y = train.PAY.values
+    le = LabelEncoder()
+    le.fit(y)
+    y = le.transform(y)
+
+    # label encoder for STA_1, STA_2 and STA_3
+    for sta in ["STA_1", "STA_2", "STA_3"]:
+        train[sta] = train[sta].apply(sta_encoder)
+        test[sta] = test[sta].apply(sta_encoder)
+
+    # assign data and label
+    X, y = train.drop(columns="PAY").values, y
+    sample_size, n_features = X.shape
+
+    # K-means SMOTE overrsampling
+    if KMEANS_USE:
+        k = int(np.sqrt(sample_size / 2))
+        sm = KMeansSMOTE(k_neighbors=k, sampling_strategy="auto")
+        X, y = sm.fit_resample(X, y)
 
     # train test split
-    X, y = df.drop(columns="PAY").values, df["PAY"].values
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y)
-    sample_size, _ = X_train.shape
-    print(
-        f"{X_train.shape = }, {y_train.shape = }, {X_test.shape = }, {y_test.shape = }"
-    )
 
-    # min-max scaler
-    scaler = MinMaxScaler()
-    scaler.fit(X_train)
-    X_train = scaler.transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    # k-means SMOTE
-    k = int(np.sqrt(sample_size / 2))
-    sm = KMeansSMOTE(k_neighbors=k)
-    X_train, y_train = sm.fit_resample(X_train, y_train)
-    print(sorted(Counter(y_train).items()))
-
-    print(y_train)
-
-    # model
-    clf = xbg.XGBClassifier(
+    clf = xgb.XGBClassifier(
         objective="binary:logistic",
-        n_estimators=10,
         use_label_encoder=False,
-        learning_rate=0.2,
+        gamma=0.1,
+        learning_rate=0.1,
         max_depth=200,
+        reg_lambda=0.001,
+        scale_pos_weight=1,
+        subsample=0.9,
+        colsample_bytree=0.5,
     )
 
     clf.fit(
-        X_train,
-        y_train,
+        X,
+        y,
         verbose=False,
-        eval_metric="logloss",
-        eval_set=[(X_test, y_test)],
+        early_stopping_rounds=10,
+        eval_metric="error",
+        eval_set=[(X, y)],
     )
-    y_pred = clf.predict(X_test)
-    print(f"Training Score: {clf.score(X_train, y_train):.2f}")
-    print(f"Testing Score: {clf.score(X_test, y_test):.2f}")
-    print(f"ROC AUC: {roc_auc_score(y_test, y_pred):.2f}")
-    show_result(clf, y_test, y_pred)
+
+    # create submission
+    y_pred = clf.predict(test.values)
+    y_pred = ["Y" if y == 1 else "N" for y in y_pred]
+    SUBMISSION = "dataset/sample_submission.csv"
+    submission = pd.read_csv(SUBMISSION)
+    submission["PAY"] = y_pred
+    submission.to_csv(
+        f"Classifier_{clf.__class__.__name__}, SMOTE_{KMEANS_USE}, Train_test_split_{TRAIN_TEST_SPLIT}.csv",
+        index=False,
+    )
+    print(f"Submission Down!")
 
 
 if __name__ == "__main__":
