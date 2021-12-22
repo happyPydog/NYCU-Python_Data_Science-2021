@@ -7,14 +7,23 @@ from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score
 from imblearn.over_sampling import KMeansSMOTE
-from utils import show_result
 
 
 TRAIN_DIR = "uci_credit_card_default.csv"
 TEST_DIR = "dataset/test.csv"
 TEST_SIZE = 0.3
-KMEANS_USE = False
 TRAIN_TEST_SPLIT = False
+KMEANS_USE = False
+
+
+CLF = xgb.XGBClassifier(
+    objective="binary:logistic",
+    use_label_encoder=False,
+    scale_pos_weight=3.34,
+    learning_rate=0.01,
+    max_depth=2000,
+    reg_lambda=0.001,
+)
 
 
 def sta_encoder(x):
@@ -32,10 +41,13 @@ def main():
     train = pd.read_csv(TRAIN_DIR).drop(columns=["ID"])
     test = pd.read_csv(TEST_DIR).drop(columns=["ID"])
 
-    # impute missing value
+    # impute missing values for testing data
+    imp_most_frequent = SimpleImputer(missing_values=np.nan, strategy="most_frequent")
+    imp_most_frequent.fit(test.values)
+    test = pd.DataFrame(imp_most_frequent.transform(test.values), columns=test.columns)
 
     # label encoder
-    label_cols = ["SEX", "EDU", "MAR"]
+    label_cols = ["SEX", "EDU", "MAR", "STA_1", "STA_2", "STA_3"]
     train[label_cols] = train[label_cols].apply(LabelEncoder().fit_transform)
     test[label_cols] = test[label_cols].apply(LabelEncoder().fit_transform)
 
@@ -45,55 +57,81 @@ def main():
     le.fit(y)
     y = le.transform(y)
 
-    # label encoder for STA_1, STA_2 and STA_3
-    for sta in ["STA_1", "STA_2", "STA_3"]:
-        train[sta] = train[sta].apply(sta_encoder)
-        test[sta] = test[sta].apply(sta_encoder)
-
     # assign data and label
     X, y = train.drop(columns="PAY").values, y
-    sample_size, n_features = X.shape
-
-    # K-means SMOTE overrsampling
-    if KMEANS_USE:
-        k = int(np.sqrt(sample_size / 2))
-        sm = KMeansSMOTE(k_neighbors=k, sampling_strategy="auto")
-        X, y = sm.fit_resample(X, y)
+    X_test = test.values
+    sample_size, _ = X.shape
 
     # train test split
+    if TRAIN_TEST_SPLIT:
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=TEST_SIZE, shuffle=True, stratify=y
+        )
+        print(f"{X_train.shape= }, {y_train.shape= }, {X_val.shape= }, {y_val.shape= }")
 
-    clf = xgb.XGBClassifier(
-        objective="binary:logistic",
-        use_label_encoder=False,
-        gamma=0.1,
-        learning_rate=0.1,
-        max_depth=200,
-        reg_lambda=0.001,
-        scale_pos_weight=1,
-        subsample=0.9,
-        colsample_bytree=0.5,
-    )
+        # K-means SMOTE overrsampling
+        if KMEANS_USE:
+            k = int(np.sqrt(sample_size / 2))
+            sm = KMeansSMOTE(
+                k_neighbors=k, cluster_balance_threshold=0.2, sampling_strategy="auto"
+            )
+            X_train, y_train = sm.fit_resample(X_train, y_train)
 
-    clf.fit(
-        X,
-        y,
-        verbose=False,
-        early_stopping_rounds=10,
-        eval_metric="error",
-        eval_set=[(X, y)],
-    )
+        CLF.fit(
+            X_train,
+            y_train,
+            verbose=False,
+            early_stopping_rounds=10,
+            eval_metric="error",
+            eval_set=[(X_val, y_val)],
+        )
+        y_pred = CLF.predict(X_val)
+        # print metric
+        print(f"Training Score {CLF.score(X_train, y_train):.2f}")
+        print(f"Testing Score {CLF.score(X_val, y_val):.2f}")
+        print(f"ROC AUC  : {roc_auc_score(y_val, y_pred)}")
 
-    # create submission
-    y_pred = clf.predict(test.values)
-    y_pred = ["Y" if y == 1 else "N" for y in y_pred]
-    SUBMISSION = "dataset/sample_submission.csv"
-    submission = pd.read_csv(SUBMISSION)
-    submission["PAY"] = y_pred
-    submission.to_csv(
-        f"Classifier_{clf.__class__.__name__}, SMOTE_{KMEANS_USE}, Train_test_split_{TRAIN_TEST_SPLIT}.csv",
-        index=False,
-    )
-    print(f"Submission Down!")
+        # create submission
+        y_pred = CLF.predict(X_test)
+        y_pred = ["Y" if y == 1 else "N" for y in y_pred]
+        SUBMISSION = "dataset/sample_submission.csv"
+        submission = pd.read_csv(SUBMISSION)
+        submission["PAY"] = y_pred
+        submission.to_csv(
+            f"Classifier_{CLF.__class__.__name__}, SMOTE_{KMEANS_USE}, Train_test_split_{TRAIN_TEST_SPLIT}.csv",
+            index=False,
+        )
+        print(f"Submission Down!")
+        print(f"File name: {CLF.__class__.__name__} {KMEANS_USE} {TRAIN_TEST_SPLIT}")
+
+    else:
+        # K-means SMOTE overrsampling
+        if KMEANS_USE:
+            k = int(np.sqrt(sample_size / 2))
+            sm = KMeansSMOTE(k_neighbors=k, sampling_strategy="auto")
+            X, y = sm.fit_resample(X, y)
+
+        CLF.fit(
+            X,
+            y,
+            verbose=False,
+            early_stopping_rounds=10,
+            eval_metric="error",
+            eval_set=[(X, y)],
+        )
+
+        # create submission
+        y_pred = CLF.predict(test.values)
+        y_pred = ["Y" if y == 1 else "N" for y in y_pred]
+        SUBMISSION = "dataset/sample_submission.csv"
+        submission = pd.read_csv(SUBMISSION)
+        submission["PAY"] = y_pred
+        submission.to_csv(
+            f"Classifier_{CLF.__class__.__name__}, SMOTE_{KMEANS_USE}, Train_test_split_{TRAIN_TEST_SPLIT}.csv",
+            index=False,
+        )
+        print(f"Submission Down!")
+        print(f"File name: {CLF.__class__.__name__} {KMEANS_USE} {TRAIN_TEST_SPLIT}")
 
 
 if __name__ == "__main__":
